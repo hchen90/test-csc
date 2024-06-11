@@ -1,5 +1,5 @@
 module test-csc
 
-go 1.21.1
+go 1.20
 
-require github.com/google/uuid v1.6.0 // indirect
+require github.com/google/uuid v1.6.0
