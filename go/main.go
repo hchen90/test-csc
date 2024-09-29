@@ -3,8 +3,8 @@ package main
 import (
 	"bytes"
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -12,15 +12,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-
-	"github.com/google/uuid"
 )
 
 var (
-	host  = flag.String("host", "https://localhost:8090", "Host address of Cloud Signature Service")
-	token = flag.String("token", "", "Token for accessing Cloud Signature Service")
-	index = flag.Int("index", 0, "Index of the credential to be selected")
-	pin   = flag.String("pin", "", "PIN of the credential to use")
+	host    = flag.String("host", "https://localhost:8090", "Host address of Cloud Signature Service")
+	token   = flag.String("token", "", "Token for accessing Cloud Signature Service")
+	index   = flag.Int("index", 0, "Index of the credential to be selected")
+	pin     = flag.String("pin", "", "PIN of the credential to use")
+	hashStr = flag.String("hashStr", "", "Hash string to sign in base64 encoded")
+	isRsa   = flag.Bool("isRsa", true, "Is RSA algorithm")
+	hashOid = flag.String("hashOid", "", "The OID of hash algorithm")
 )
 
 func request(url string, ctx []byte, ctyp, tok string) ([]byte, error) {
@@ -139,14 +140,16 @@ func main() {
 	fmt.Printf("5. ==> certificate info: %s\n", cert.Subject.CommonName)
 
 	// 证书中的公钥信息
-	pubKey := cert.PublicKey.(*rsa.PublicKey)
-
-	str := uuid.NewString()
+	// pubKey := cert.PublicKey.(*rsa.PublicKey)
+	// pubKey := cert.PublicKey.(*ecdsa.PublicKey)
 
 	// 原始消息
-	fmt.Printf("6. ==> original message: %s\n", str)
+	fmt.Printf("6. ==> hash string: %s\n", *hashStr)
 
-	hash := sha256.Sum256([]byte(str))
+	hash, err := base64.StdEncoding.DecodeString(*hashStr)
+	if err != nil {
+		panic(err)
+	}
 
 	// 哈希消息
 	fmt.Printf("7. ==> hashed message: %v\n", hash)
@@ -197,7 +200,7 @@ func main() {
 		Hash: []string{
 			base64.StdEncoding.EncodeToString(hash[:]),
 		},
-		HashAlgo: "2.16.840.1.101.3.4.2.1",
+		HashAlgo: *hashOid,
 		SignAlgo: credInfo.Key.Algo[0],
 	})
 	if err != nil {
@@ -230,9 +233,16 @@ func main() {
 		panic(err)
 	}
 
-	err = rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, hash[:], ctx)
-	if err != nil {
-		panic(err)
+	if *isRsa {
+		err = rsa.VerifyPKCS1v15(cert.PublicKey.(*rsa.PublicKey), crypto.SHA256, hash[:], ctx)
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		ok := ecdsa.VerifyASN1(cert.PublicKey.(*ecdsa.PublicKey), hash[:], ctx)
+		if !ok {
+			panic("invalid signature")
+		}
 	}
 
 	// 验签通过
